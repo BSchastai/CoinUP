@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, createContext, useContext } from 'react';
+import Constants from 'expo-constants';
 import {
   StyleSheet,
   Text,
@@ -46,7 +47,7 @@ const ThemeProvider = ({ children }) => {
 const useTheme = () => useContext(ThemeContext);
 
 // --- CONFIGURAÇÃO DA API ---
-const FIREBASE_API_KEY = "AIzaSyAaD5U98Ie0H2I-JzA3Tfk806vMsQJQ-9I";
+const FIREBASE_API_KEY = Constants.expoConfig.extra.FIREBASE_API_KEY;
 const FIREBASE_AUTH_BASE_URL = "https://identitytoolkit.googleapis.com/v1/accounts";
 const COINUP_API_BASE_URL = "https://coinup.azurewebsites.net";
 
