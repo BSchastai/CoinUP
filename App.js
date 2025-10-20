@@ -16,9 +16,11 @@ import {
   Animated,
   SectionList,
   Switch,
-  RefreshControl, // 1. Importar o RefreshControl
+  RefreshControl,
+  useWindowDimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { TabView, SceneMap, TabBar } from 'react-native-tab-view';
 
 // ===================================================================
 // ===== SISTEMA DE TEMA =============================================
@@ -45,6 +47,10 @@ const ThemeProvider = ({ children }) => {
   return ( <ThemeContext.Provider value={{ theme: currentTheme, toggleTheme }}>{children}</ThemeContext.Provider> );
 };
 const useTheme = () => useContext(ThemeContext);
+
+// ===== MAPA DE CATEGORIAS CENTRALIZADO =====
+const categoryMap = { 0: 'Outros', 1: 'Salário', 2: 'Pix', 3: 'Moradia', 4: 'Alimentação', 5: 'Transporte', 6: 'Saúde', 7: 'Lazer e Hobbies', 8: 'Cheque', 9: 'Dinheiro' };
+const expenseCategoryMap = { 'Alimentação': 4, 'Moradia': 3, 'Transporte': 5, 'Saúde': 6, 'Lazer e Hobbies': 7, 'Pix': 2, 'Outros': 0 };
 
 // --- CONFIGURAÇÃO DA API ---
 const FIREBASE_API_KEY = Constants.expoConfig.extra.FIREBASE_API_KEY;
@@ -98,8 +104,6 @@ const LoginScreen = ({ onNavigate, onLoginSuccess }) => {
   );
 };
 const SignUpScreen = ({ onNavigate }) => { const { theme } = useTheme(); const styles = getStyles(theme); const [name, setName] = useState(''); const [email, setEmail] = useState(''); const [phone, setPhone] = useState(''); const [gender, setGender] = useState(null); const [password, setPassword] = useState(''); const [confirmPassword, setConfirmPassword] = useState(''); const [isPasswordVisible, setIsPasswordVisible] = useState(false); const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] = useState(false); const [loading, setLoading] = useState(false); const [error, setError] = useState(null); const [success, setSuccess] = useState(false); const getGenderEnum = () => { if (gender === 'male') return 1; if (gender === 'female') return 2; return 0; }; const handleSignUp = async () => { if (!name.trim() || !email.trim() || !phone.trim() || !password.trim()) { setError("Por favor, preencha todos os campos."); return; } if (password !== confirmPassword) { setError("As senhas não coincidem."); return; } if (loading) return; setLoading(true); setError(null); try { const profileData = { nome: name, email, senha: password, telefone: phone, sexo: getGenderEnum() }; await apiService.createUserProfile(profileData); setSuccess(true); } catch (e) { if (e.message && (e.message.includes('Erro ao criar perfil de usuário') || e.message.includes("Unexpected token"))) { setSuccess(true); } else { setError(e.message); } } finally { setLoading(false); } }; return ( <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboardView}><AlertModal visible={!!error} title="Erro no Cadastro" message={error} onClose={() => setError(null)} /><AlertModal visible={success} title="Sucesso!" message="Sua conta foi criada. Você já pode fazer o login." onClose={() => { setSuccess(false); onNavigate('login'); }} /><ScrollView contentContainerStyle={styles.content}><Text style={styles.title}>Crie sua conta</Text><Text style={styles.subtitle}>É rápido e fácil</Text><View style={styles.inputContainer}><TextInput style={styles.inputField} placeholder="Nome Completo" placeholderTextColor={theme.textSecondary} value={name} onChangeText={setName} /></View><View style={styles.inputContainer}><TextInput style={styles.inputField} placeholder="Email" placeholderTextColor={theme.textSecondary} keyboardType="email-address" autoCapitalize="none" value={email} onChangeText={setEmail} /></View><View style={styles.inputContainer}><TextInput style={styles.inputField} placeholder="Telefone" placeholderTextColor={theme.textSecondary} keyboardType="phone-pad" value={phone} onChangeText={setPhone} /></View><View style={styles.genderContainer}><Text style={styles.genderLabel}>Sexo:</Text><TouchableOpacity style={[styles.genderButton, gender === 'male' && styles.genderButtonSelected]} onPress={() => setGender('male')}><Text style={[styles.genderButtonText, gender === 'male' && styles.genderButtonTextSelected]}>Masculino</Text></TouchableOpacity><TouchableOpacity style={[styles.genderButton, gender === 'female' && styles.genderButtonSelected]} onPress={() => setGender('female')}><Text style={[styles.genderButtonText, gender === 'female' && styles.genderButtonTextSelected]}>Feminino</Text></TouchableOpacity></View><View style={styles.inputContainer}><TextInput style={styles.inputField} placeholder="Senha" placeholderTextColor={theme.textSecondary} secureTextEntry={!isPasswordVisible} value={password} onChangeText={setPassword} /><PasswordVisibilityToggle isVisible={isPasswordVisible} onPress={() => setIsPasswordVisible(!isPasswordVisible)} /></View><View style={styles.inputContainer}><TextInput style={styles.inputField} placeholder="Confirmar Senha" placeholderTextColor={theme.textSecondary} secureTextEntry={!isConfirmPasswordVisible} value={confirmPassword} onChangeText={setConfirmPassword} /><PasswordVisibilityToggle isVisible={isConfirmPasswordVisible} onPress={() => setIsConfirmPasswordVisible(!isConfirmPasswordVisible)} /></View><TouchableOpacity style={styles.button} onPress={handleSignUp} disabled={loading}>{loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Cadastrar</Text>}</TouchableOpacity><TouchableOpacity style={styles.linkButton} onPress={() => onNavigate('login')}><Text style={styles.linkText}> Já tem uma conta? <Text style={styles.linkTextBold}>Faça Login</Text></Text></TouchableOpacity></ScrollView></KeyboardAvoidingView> ); };
-
-// ===== TELA HOME COM "PUXAR PARA ATUALIZAR" =====
 const HomeScreen = ({ onNavigate, missions, dashboardData, isLoading, dashboardError, isRefreshing, onRefresh }) => {
     const { theme } = useTheme();
     const styles = getStyles(theme);
@@ -115,13 +119,12 @@ const HomeScreen = ({ onNavigate, missions, dashboardData, isLoading, dashboardE
             <SelectionModal visible={isTransactionTypeModalVisible} title="O que deseja criar?" options={transactionTypeOptions.map(o => o.label)} onSelect={(optionLabel) => { const selected = transactionTypeOptions.find(o => o.label === optionLabel); if (selected) selected.action(); setTransactionTypeModalVisible(false); }} onClose={() => setTransactionTypeModalVisible(false)} />
             <ScrollView
                 style={styles.homeContainer}
-                // 2. Adicionar o RefreshControl ao ScrollView
                 refreshControl={
                     <RefreshControl
                         refreshing={isRefreshing}
                         onRefresh={onRefresh}
-                        colors={[theme.primary]} // Cor do spinner no Android
-                        tintColor={theme.primary} // Cor do spinner no iOS
+                        colors={[theme.primary]}
+                        tintColor={theme.primary}
                     />
                 }
             >
@@ -133,13 +136,161 @@ const HomeScreen = ({ onNavigate, missions, dashboardData, isLoading, dashboardE
         </View>
     );
 };
-const CreateMissionScreen = ({ onNavigate, onSave }) => { const { theme } = useTheme(); const styles = getStyles(theme); const [descricao, setDescricao] = useState(''); const [rawValue, setRawValue] = useState(''); const [tipoDeObjetivo, setTipoDeObjetivo] = useState(1); const [duracao, setDuracao] = useState(0); const [categoriaAlvo, setCategoriaAlvo] = useState(4); const [modalVisible, setModalVisible] = useState(false); const [modalConfig, setModalConfig] = useState({ title: '', options: [], onSelect: () => {} }); const [loading, setLoading] = useState(false); const [error, setError] = useState(null); const objectiveTypeMap = { 'Limitar Gasto em Categoria': 1, 'Não Gastar em Categoria': 2, 'Manter Saldo Acima de': 3 }; const durationMap = { 'Diária': 0, 'Semanal': 1, 'Mensal': 2 }; const expenseCategoryMap = { 'Alimentação': 4, 'Moradia': 3, 'Transporte': 5, 'Saúde': 6, 'Lazer e Hobbies': 7, 'Pix': 2, 'Outros': 0 }; const formatCurrency = (value) => { if (!value) return ''; let num = value.replace(/[^\d]/g, ''); if (num.length === 0) return ''; num = parseInt(num, 10).toString(); if (num.length < 3) num = num.padStart(3, '0'); return 'R$ ' + num.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, ".") + ',' + num.slice(-2); }; const handleValueChange = (text) => setRawValue(text.replace(/[^\d]/g, '')); const openModal = (type) => { let config = {}; if (type === 'objective') { config = { title: 'Tipo de Objetivo', options: Object.keys(objectiveTypeMap), onSelect: (option) => setTipoDeObjetivo(objectiveTypeMap[option]) }; } else if (type === 'duration') { config = { title: 'Duração', options: Object.keys(durationMap), onSelect: (option) => setDuracao(durationMap[option]) }; } else if (type === 'category') { config = { title: 'Categoria Alvo', options: Object.keys(expenseCategoryMap), onSelect: (option) => setCategoriaAlvo(expenseCategoryMap[option]) }; } setModalConfig(config); setModalVisible(true); }; const handleSave = async () => { if (!descricao.trim()) { setError("Preencha a descrição."); return; } if ((tipoDeObjetivo === 1 || tipoDeObjetivo === 3) && !rawValue) { setError("Preencha o valor alvo."); return; } setLoading(true); setError(null); try { const valorFinal = (tipoDeObjetivo === 2) ? 0 : parseFloat(rawValue) / 100; const newMissionData = { descricao, valorAlvo: valorFinal, tipoDeObjetivo, duracao, categoriaAlvo }; await onSave(newMissionData); } catch (e) { setError(e.message); } finally { setLoading(false); } }; const showValueField = tipoDeObjetivo === 1 || tipoDeObjetivo === 3; return ( <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.pageContainer}><AlertModal visible={!!error} title="Erro" message={error} onClose={() => setError(null)} /><SelectionModal visible={modalVisible} title={modalConfig.title} options={modalConfig.options} onSelect={(opt) => { modalConfig.onSelect(opt); setModalVisible(false); }} onClose={() => setModalVisible(false)} /><View style={styles.pageHeader}><BackIcon onPress={() => onNavigate('missions')} /><Text style={styles.pageTitle}>Nova Missão</Text><View style={{ width: 50 }} /></View><ScrollView contentContainerStyle={styles.formContainer}><View style={styles.formRow}><Text style={styles.formLabel}>Descrição</Text><TextInput style={styles.formInput} placeholder="Ex: Gastar menos de R$50 com Lazer" placeholderTextColor={theme.textSecondary} value={descricao} onChangeText={setDescricao} /></View><TouchableOpacity style={styles.formRow} onPress={() => openModal('objective')}><Text style={styles.formLabel}>Tipo de Objetivo</Text><Text style={styles.formInput}>{Object.keys(objectiveTypeMap).find(key => objectiveTypeMap[key] === tipoDeObjetivo)}</Text></TouchableOpacity><TouchableOpacity style={styles.formRow} onPress={() => openModal('duration')}><Text style={styles.formLabel}>Duração</Text><Text style={styles.formInput}>{Object.keys(durationMap).find(key => durationMap[key] === duracao)}</Text></TouchableOpacity>{(tipoDeObjetivo === 1 || tipoDeObjetivo === 2) && (<TouchableOpacity style={styles.formRow} onPress={() => openModal('category')}><Text style={styles.formLabel}>Categoria Alvo</Text><Text style={styles.formInput}>{Object.keys(expenseCategoryMap).find(key => expenseCategoryMap[key] === categoriaAlvo)}</Text></TouchableOpacity>)}{showValueField && (<View style={styles.formRow}><Text style={styles.formLabel}>Valor Alvo</Text><TextInput style={styles.formInput} placeholder="R$ 0,00" placeholderTextColor={theme.textSecondary} keyboardType="numeric" value={formatCurrency(rawValue)} onChangeText={handleValueChange} /></View>)}</ScrollView><View style={{ paddingHorizontal: 20, paddingBottom: 20 }}><TouchableOpacity style={[styles.button, styles.confirmButton]} onPress={handleSave} disabled={loading}>{loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Salvar Missão</Text>}</TouchableOpacity></View></KeyboardAvoidingView> ); };
+const CreateMissionScreen = ({ onNavigate, onSave }) => {
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
+  const [descricao, setDescricao] = useState(''); const [rawValue, setRawValue] = useState(''); const [tipoDeObjetivo, setTipoDeObjetivo] = useState(1); const [duracao, setDuracao] = useState(0); const [categoriaAlvo, setCategoriaAlvo] = useState(4);
+  const [modalVisible, setModalVisible] = useState(false); const [modalConfig, setModalConfig] = useState({ title: '', options: [], onSelect: () => {} }); const [loading, setLoading] = useState(false); const [error, setError] = useState(null);
+  const objectiveTypeMap = { 'Limitar Gasto em Categoria': 1, 'Não Gastar em Categoria': 2, 'Manter Saldo Acima de': 3 };
+  const durationMap = { 'Diária': 0, 'Semanal': 1, 'Mensal': 2 };
+
+  const formatCurrency = (value) => { if (!value) return ''; let num = value.replace(/[^\d]/g, ''); if (num.length === 0) return ''; num = parseInt(num, 10).toString(); if (num.length < 3) num = num.padStart(3, '0'); return 'R$ ' + num.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, ".") + ',' + num.slice(-2); };
+  const handleValueChange = (text) => setRawValue(text.replace(/[^\d]/g, ''));
+  const openModal = (type) => {
+    let config = {};
+    if (type === 'objective') { config = { title: 'Tipo de Objetivo', options: Object.keys(objectiveTypeMap), onSelect: (option) => setTipoDeObjetivo(objectiveTypeMap[option]) }; }
+    else if (type === 'duration') { config = { title: 'Duração', options: Object.keys(durationMap), onSelect: (option) => setDuracao(durationMap[option]) }; }
+    else if (type === 'category') { config = { title: 'Categoria Alvo', options: Object.keys(expenseCategoryMap), onSelect: (option) => setCategoriaAlvo(expenseCategoryMap[option]) }; }
+    setModalConfig(config); setModalVisible(true);
+  };
+  const handleSave = async () => { if (!descricao.trim()) { setError("Preencha a descrição."); return; } if ((tipoDeObjetivo === 1 || tipoDeObjetivo === 3) && !rawValue) { setError("Preencha o valor alvo."); return; } setLoading(true); setError(null); try { const valorFinal = (tipoDeObjetivo === 2) ? 0 : parseFloat(rawValue) / 100; const newMissionData = { descricao, valorAlvo: valorFinal, tipoDeObjetivo, duracao, categoriaAlvo }; await onSave(newMissionData); } catch (e) { setError(e.message); } finally { setLoading(false); } };
+  const showValueField = tipoDeObjetivo === 1 || tipoDeObjetivo === 3;
+
+  return (
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.pageContainer}>
+      <AlertModal visible={!!error} title="Erro" message={error} onClose={() => setError(null)} />
+      <SelectionModal visible={modalVisible} title={modalConfig.title} options={modalConfig.options} onSelect={(opt) => { modalConfig.onSelect(opt); setModalVisible(false); }} onClose={() => setModalVisible(false)} />
+      <View style={styles.pageHeader}><BackIcon onPress={() => onNavigate('missions')} /><Text style={styles.pageTitle}>Nova Missão</Text><View style={{ width: 50 }} /></View>
+      <ScrollView contentContainerStyle={styles.formContainer}>
+        <View style={styles.formRow}><Text style={styles.formLabel}>Descrição</Text><TextInput style={styles.formInput} placeholder="Ex: Gastar menos de R$50 com Lazer" placeholderTextColor={theme.textSecondary} value={descricao} onChangeText={setDescricao} /></View>
+        <TouchableOpacity style={styles.formRow} onPress={() => openModal('objective')}><Text style={styles.formLabel}>Tipo de Objetivo</Text><Text style={styles.formInput}>{Object.keys(objectiveTypeMap).find(key => objectiveTypeMap[key] === tipoDeObjetivo)}</Text></TouchableOpacity>
+        <TouchableOpacity style={styles.formRow} onPress={() => openModal('duration')}><Text style={styles.formLabel}>Duração</Text><Text style={styles.formInput}>{Object.keys(durationMap).find(key => durationMap[key] === duracao)}</Text></TouchableOpacity>
+        {(tipoDeObjetivo === 1 || tipoDeObjetivo === 2) && (<TouchableOpacity style={styles.formRow} onPress={() => openModal('category')}><Text style={styles.formLabel}>Categoria Alvo</Text><Text style={styles.formInput}>{Object.keys(expenseCategoryMap).find(key => expenseCategoryMap[key] === categoriaAlvo)}</Text></TouchableOpacity>)}
+        {showValueField && (
+          <View style={styles.formRow}>
+            <Text style={styles.formLabel}>Valor Alvo</Text>
+            <TextInput
+              style={[styles.formInput, { color: theme.text }]}
+              placeholder="R$ 0,00"
+              placeholderTextColor={theme.textSecondary}
+              keyboardType="numeric"
+              value={formatCurrency(rawValue)}
+              onChangeText={handleValueChange}
+            />
+          </View>
+        )}
+      </ScrollView>
+      <View style={{ paddingHorizontal: 20, paddingBottom: 20 }}><TouchableOpacity style={[styles.button, styles.confirmButton]} onPress={handleSave} disabled={loading}>{loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Salvar Missão</Text>}</TouchableOpacity></View>
+    </KeyboardAvoidingView>
+  );
+};
 const AddIncomeScreen = ({ onNavigate, userToken, onSaveSuccess, dashboardData }) => { const { theme } = useTheme(); const styles = getStyles(theme); const [rawValue, setRawValue] = useState(''); const [date, setDate] = useState(new Date()); const [description, setDescription] = useState(''); const incomeCategoryMap = { 'Salário': 1, 'Pix': 2, 'Cheque': 8, 'Dinheiro': 9, 'Outros': 0 }; const categoryOptions = Object.keys(incomeCategoryMap); const [category, setCategory] = useState('Salário'); const [isCategoryModalVisible, setCategoryModalVisible] = useState(false); const [isCalendarVisible, setCalendarVisible] = useState(false); const [loading, setLoading] = useState(false); const [error, setError] = useState(null); const descriptionInputRef = useRef(null); const formatCurrency = (value) => { if (!value) return ''; let num = value.replace(/[^\d]/g, ''); if (num.length === 0) return ''; num = parseInt(num, 10).toString(); if (num.length < 3) num = num.padStart(3, '0'); return 'R$ ' + num.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, ".") + ',' + num.slice(-2); }; const handleValueChange = (text) => setRawValue(text.replace(/[^\d]/g, '')); const handleDateSelect = (selectedDate) => { setDate(selectedDate); setCalendarVisible(false); }; const handleSave = async () => { if (!rawValue) { setError("Por favor, insira um valor."); return; } if (!dashboardData?.conta?.id) { setError("Não foi possível identificar a conta do usuário."); return; } setLoading(true); setError(null); try { const valorNumerico = parseFloat(rawValue) / 100; if (isNaN(valorNumerico) || valorNumerico <= 0) { setError("O valor inserido é inválido."); setLoading(false); return; } const adjustedDate = new Date(date); adjustedDate.setHours(12, 0, 0, 0); const transactionData = { tipoTransacao: 1, categoria: incomeCategoryMap[category], valor: valorNumerico, descricao: description, data: adjustedDate.toISOString() }; await apiService.createTransaction(transactionData, userToken); onSaveSuccess(); } catch (e) { setError(`Ocorreu um erro: ${e.message}`); } finally { setLoading(false); } }; return ( <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.pageContainer}><AlertModal visible={!!error} title="Erro" message={error} onClose={() => setError(null)} /><CalendarModal visible={isCalendarVisible} onClose={() => setCalendarVisible(false)} onSelectDate={handleDateSelect} /><SelectionModal visible={isCategoryModalVisible} title="Selecione uma Categoria" options={categoryOptions} onSelect={(opt) => { setCategory(opt); setCategoryModalVisible(false); }} onClose={() => setCategoryModalVisible(false)} /><View style={styles.pageHeader}><BackIcon onPress={() => onNavigate('home')} /><Text style={styles.pageTitle}>Nova Receita</Text><View style={{ width: 50 }} /></View><ScrollView contentContainerStyle={styles.formScrollContainer}><View><Text style={styles.formValueLabel}>Valor da receita</Text><TextInput style={styles.formValueInput} placeholder="R$ 0,00" placeholderTextColor={theme.textSecondary} keyboardType="numeric" value={formatCurrency(rawValue)} onChangeText={handleValueChange} /><TouchableOpacity style={styles.formRow} onPress={() => setCalendarVisible(true)}><Text style={styles.formLabel}>🗓️ Data</Text><Text style={styles.formInput}>{date.toLocaleDateString('pt-BR')}</Text></TouchableOpacity><TouchableOpacity style={styles.formRow} onPress={() => descriptionInputRef.current && descriptionInputRef.current.focus()}><Text style={styles.formLabel}>✍️ Descrição</Text><TextInput ref={descriptionInputRef} style={styles.formInput} placeholder="Ex: Salário do mês" placeholderTextColor={theme.textSecondary} value={description} onChangeText={setDescription} /></TouchableOpacity><TouchableOpacity style={styles.formRow} onPress={() => setCategoryModalVisible(true)}><Text style={styles.formLabel}>📂 Categoria</Text><Text style={styles.formInput}>{category}</Text></TouchableOpacity></View><TouchableOpacity style={[styles.button, styles.confirmButton]} onPress={handleSave} disabled={loading}>{loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Salvar Receita</Text>}</TouchableOpacity></ScrollView></KeyboardAvoidingView> ); };
-const AddExpenseScreen = ({ onNavigate, userToken, onSaveSuccess, dashboardData }) => { const { theme } = useTheme(); const styles = getStyles(theme); const [rawValue, setRawValue] = useState(''); const [date, setDate] = useState(new Date()); const [description, setDescription] = useState(''); const expenseCategoryMap = { 'Alimentação': 4, 'Moradia': 3, 'Transporte': 5, 'Saúde': 6, 'Lazer e Hobbies': 7, 'Pix': 2, 'Outros': 0 }; const categoryOptions = Object.keys(expenseCategoryMap); const [category, setCategory] = useState('Alimentação'); const [isCategoryModalVisible, setCategoryModalVisible] = useState(false); const [isCalendarVisible, setCalendarVisible] = useState(false); const [loading, setLoading] = useState(false); const [error, setError] = useState(null); const descriptionInputRef = useRef(null); const formatCurrency = (value) => { if (!value) return ''; let num = value.replace(/[^\d]/g, ''); if (num.length === 0) return ''; num = parseInt(num, 10).toString(); if (num.length < 3) num = num.padStart(3, '0'); return 'R$ ' + num.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, ".") + ',' + num.slice(-2); }; const handleValueChange = (text) => setRawValue(text.replace(/[^\d]/g, '')); const handleDateSelect = (selectedDate) => { setDate(selectedDate); setCalendarVisible(false); }; const handleSave = async () => { if (!rawValue) { setError("Por favor, insira um valor."); return; } if (!dashboardData?.conta?.id) { setError("Não foi possível identificar a conta do usuário."); return; } setLoading(true); setError(null); try { const valorNumerico = parseFloat(rawValue) / 100; if (isNaN(valorNumerico) || valorNumerico <= 0) { setError("O valor inserido é inválido."); setLoading(false); return; } const adjustedDate = new Date(date); adjustedDate.setHours(12, 0, 0, 0); const transactionData = { tipoTransacao: 0, categoria: expenseCategoryMap[category], valor: valorNumerico, descricao: description, data: adjustedDate.toISOString() }; await apiService.createTransaction(transactionData, userToken); onSaveSuccess(); } catch (e) { setError(`Ocorreu um erro: ${e.message}`); } finally { setLoading(false); } }; return ( <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.pageContainer}><AlertModal visible={!!error} title="Erro" message={error} onClose={() => setError(null)} /><CalendarModal visible={isCalendarVisible} onClose={() => setCalendarVisible(false)} onSelectDate={handleDateSelect} /><SelectionModal visible={isCategoryModalVisible} title="Selecione uma Categoria" options={categoryOptions} onSelect={(opt) => { setCategory(opt); setCategoryModalVisible(false); }} onClose={() => setCategoryModalVisible(false)} /><View style={styles.pageHeader}><BackIcon onPress={() => onNavigate('home')} /><Text style={styles.pageTitle}>Nova Despesa</Text><View style={{ width: 50 }} /></View><ScrollView contentContainerStyle={styles.formScrollContainer}><View><Text style={[styles.formValueLabel, { color: theme.negative }]}>Valor da despesa</Text><TextInput style={[styles.formValueInput, { color: theme.negative }]} placeholder="R$ 0,00" placeholderTextColor={theme.textSecondary} keyboardType="numeric" value={formatCurrency(rawValue)} onChangeText={handleValueChange} /><TouchableOpacity style={styles.formRow} onPress={() => setCalendarVisible(true)}><Text style={styles.formLabel}>🗓️ Data</Text><Text style={styles.formInput}>{date.toLocaleDateString('pt-BR')}</Text></TouchableOpacity><TouchableOpacity style={styles.formRow} onPress={() => descriptionInputRef.current && descriptionInputRef.current.focus()}><Text style={styles.formLabel}>✍️ Descrição</Text><TextInput ref={descriptionInputRef} style={styles.formInput} placeholder="Ex: Almoço" placeholderTextColor={theme.textSecondary} value={description} onChangeText={setDescription} /></TouchableOpacity><TouchableOpacity style={styles.formRow} onPress={() => setCategoryModalVisible(true)}><Text style={styles.formLabel}>📂 Categoria</Text><Text style={styles.formInput}>{category}</Text></TouchableOpacity></View><TouchableOpacity style={[styles.button, styles.confirmButton, { backgroundColor: theme.negative }]} onPress={handleSave} disabled={loading}>{loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Salvar Despesa</Text>}</TouchableOpacity></ScrollView></KeyboardAvoidingView> ); };
+const AddExpenseScreen = ({ onNavigate, userToken, onSaveSuccess, dashboardData }) => { const { theme } = useTheme(); const styles = getStyles(theme); const [rawValue, setRawValue] = useState(''); const [date, setDate] = useState(new Date()); const [description, setDescription] = useState(''); const categoryOptions = Object.keys(expenseCategoryMap); const [category, setCategory] = useState('Alimentação'); const [isCategoryModalVisible, setCategoryModalVisible] = useState(false); const [isCalendarVisible, setCalendarVisible] = useState(false); const [loading, setLoading] = useState(false); const [error, setError] = useState(null); const descriptionInputRef = useRef(null); const formatCurrency = (value) => { if (!value) return ''; let num = value.replace(/[^\d]/g, ''); if (num.length === 0) return ''; num = parseInt(num, 10).toString(); if (num.length < 3) num = num.padStart(3, '0'); return 'R$ ' + num.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, ".") + ',' + num.slice(-2); }; const handleValueChange = (text) => setRawValue(text.replace(/[^\d]/g, '')); const handleDateSelect = (selectedDate) => { setDate(selectedDate); setCalendarVisible(false); }; const handleSave = async () => { if (!rawValue) { setError("Por favor, insira um valor."); return; } if (!dashboardData?.conta?.id) { setError("Não foi possível identificar a conta do usuário."); return; } setLoading(true); setError(null); try { const valorNumerico = parseFloat(rawValue) / 100; if (isNaN(valorNumerico) || valorNumerico <= 0) { setError("O valor inserido é inválido."); setLoading(false); return; } const adjustedDate = new Date(date); adjustedDate.setHours(12, 0, 0, 0); const transactionData = { tipoTransacao: 0, categoria: expenseCategoryMap[category], valor: valorNumerico, descricao: description, data: adjustedDate.toISOString() }; await apiService.createTransaction(transactionData, userToken); onSaveSuccess(); } catch (e) { setError(`Ocorreu um erro: ${e.message}`); } finally { setLoading(false); } }; return ( <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.pageContainer}><AlertModal visible={!!error} title="Erro" message={error} onClose={() => setError(null)} /><CalendarModal visible={isCalendarVisible} onClose={() => setCalendarVisible(false)} onSelectDate={handleDateSelect} /><SelectionModal visible={isCategoryModalVisible} title="Selecione uma Categoria" options={categoryOptions} onSelect={(opt) => { setCategory(opt); setCategoryModalVisible(false); }} onClose={() => setCategoryModalVisible(false)} /><View style={styles.pageHeader}><BackIcon onPress={() => onNavigate('home')} /><Text style={styles.pageTitle}>Nova Despesa</Text><View style={{ width: 50 }} /></View><ScrollView contentContainerStyle={styles.formScrollContainer}><View><Text style={[styles.formValueLabel, { color: theme.negative }]}>Valor da despesa</Text><TextInput style={[styles.formValueInput, { color: theme.negative }]} placeholder="R$ 0,00" placeholderTextColor={theme.textSecondary} keyboardType="numeric" value={formatCurrency(rawValue)} onChangeText={handleValueChange} /><TouchableOpacity style={styles.formRow} onPress={() => setCalendarVisible(true)}><Text style={styles.formLabel}>🗓️ Data</Text><Text style={styles.formInput}>{date.toLocaleDateString('pt-BR')}</Text></TouchableOpacity><TouchableOpacity style={styles.formRow} onPress={() => descriptionInputRef.current && descriptionInputRef.current.focus()}><Text style={styles.formLabel}>✍️ Descrição</Text><TextInput ref={descriptionInputRef} style={styles.formInput} placeholder="Ex: Almoço" placeholderTextColor={theme.textSecondary} value={description} onChangeText={setDescription} /></TouchableOpacity><TouchableOpacity style={styles.formRow} onPress={() => setCategoryModalVisible(true)}><Text style={styles.formLabel}>📂 Categoria</Text><Text style={styles.formInput}>{category}</Text></TouchableOpacity></View><TouchableOpacity style={[styles.button, styles.confirmButton, { backgroundColor: theme.negative }]} onPress={handleSave} disabled={loading}>{loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Salvar Despesa</Text>}</TouchableOpacity></ScrollView></KeyboardAvoidingView> ); };
 const ProfileScreen = ({ onNavigate, onLogout, userProfile, isLoading }) => { const { theme, toggleTheme } = useTheme(); const styles = getStyles(theme); const rankMap = { 0: 'Nenhum', 1: 'Cobre', 2: 'Bronze', 3: 'Prata', 4: 'Ouro', 5: 'Platina', 6: 'Diamante', 7: 'Lendário' }; const sexoMap = { 0: 'Não informado', 1: 'Masculino', 2: 'Feminino' }; if (isLoading || !userProfile) { return ( <View style={[styles.centeredMessageContainer, {backgroundColor: theme.background}]}><ActivityIndicator size="large" color={theme.primary} /></View> ); } const xpParaProximoNivel = 1000; const xpAtualNoNivel = userProfile.pontosDeExperiencia % xpParaProximoNivel; const xpProgresso = (xpAtualNoNivel / xpParaProximoNivel) * 100; return ( <View style={styles.pageContainer}><View style={styles.pageHeader}><BackIcon onPress={() => onNavigate('home')} /><Text style={styles.pageTitle}>Perfil</Text><View style={{ width: 50 }} /></View><ScrollView contentContainerStyle={styles.profileContent}><View style={styles.profileHeader}><View style={styles.profileAvatar}><Text style={styles.profileAvatarText}>{userProfile.nome ? userProfile.nome.charAt(0).toUpperCase() : 'U'}</Text></View><Text style={styles.profileName}>{userProfile.nome}</Text><Text style={styles.profileEmail}>{userProfile.email}</Text></View><View style={styles.profileStatsCard}><Text style={styles.profileLevelRank}>{`Nível ${userProfile.nivel} - ${rankMap[userProfile.rank]}`}</Text><View style={{width: '100%', marginTop: 10}}><AnimatedProgressBar progress={xpProgresso} /><Text style={styles.xpLabel}>{`${xpAtualNoNivel} / ${xpParaProximoNivel} XP`}</Text></View></View><View style={styles.profileStatsCard}><Text style={styles.cardTitle}>Informações</Text><View style={styles.infoRow}><Text style={styles.infoLabel}>Telefone:</Text><Text style={styles.infoValue}>{userProfile.telefone}</Text></View><View style={[styles.infoRow, { borderBottomWidth: 0 }]}><Text style={styles.infoLabel}>Sexo:</Text><Text style={styles.infoValue}>{sexoMap[userProfile.sexo]}</Text></View></View><View style={styles.profileStatsCard}><Text style={styles.cardTitle}>Preferências</Text><View style={styles.infoRow}><Text style={styles.infoLabel}>Tema Escuro</Text><Switch trackColor={{ false: '#767577', true: '#81b0ff' }} thumbColor={theme.dark ? theme.primary : '#f4f3f4'} ios_backgroundColor="#3e3e3e" onValueChange={toggleTheme} value={theme.dark} /></View></View><TouchableOpacity style={[styles.button, styles.secondaryButton]} onPress={() => onNavigate('achievements')}><Text style={[styles.buttonText, styles.secondaryButtonText]}>Ver Conquistas</Text></TouchableOpacity><TouchableOpacity style={[styles.button, { marginTop: 20, backgroundColor: theme.negative }]} onPress={onLogout}><Text style={styles.buttonText}>Sair da Conta</Text></TouchableOpacity></ScrollView></View> ); };
 const AchievementsScreen = ({ onNavigate, userProfile }) => { const { theme } = useTheme(); const styles = getStyles(theme); const achievements = [ { name: 'Cobre', rankValue: 1, icon: '🥉' }, { name: 'Bronze', rankValue: 2, icon: '🥉' }, { name: 'Prata', rankValue: 3, icon: '🥈' }, { name: 'Ouro', rankValue: 4, icon: '🥇' }, { name: 'Platina', rankValue: 5, icon: '💎' }, { name: 'Diamante', rankValue: 6, icon: '💎' }, { name: 'Lendário', rankValue: 7, icon: '🏆' }, ]; if (!userProfile) { return <View style={[styles.centeredMessageContainer, {backgroundColor: theme.background}]}><ActivityIndicator size="large" color={theme.primary} /></View>; } return ( <View style={styles.pageContainer}><View style={styles.pageHeader}><BackIcon onPress={() => onNavigate('profile')} /><Text style={styles.pageTitle}>Conquistas</Text><View style={{ width: 50 }} /></View><ScrollView contentContainerStyle={styles.formContainer}><View style={styles.achievementsGrid}>{achievements.map((ach) => { const isUnlocked = userProfile.rank >= ach.rankValue; return ( <View key={ach.name} style={[styles.achievementBadge, !isUnlocked && styles.lockedBadge]}><Text style={styles.achievementIcon}>{ach.icon}</Text><Text style={styles.achievementName}>{ach.name}</Text></View> ); })}</View></ScrollView></View> ); };
-const TransactionHistoryScreen = ({ onNavigate, transactions }) => { const { theme } = useTheme(); const styles = getHistoryStyles(theme); const categoryMap = { 0: 'Outros', 1: 'Salário', 2: 'Pix', 3: 'Moradia', 4: 'Alimentação', 5: 'Transporte', 6: 'Saúde', 7: 'Lazer e Hobbies', 8: 'Cheque', 9: 'Dinheiro' }; const renderTransactionItem = ({ item }) => { const tipoTransacao = item.TipoTransacao ?? item.tipoTransacao; const categoria = item.Categoria ?? item.categoria; const descricao = item.Descricao ?? item.descricao; const valor = item.Valor ?? item.valor ?? 0; const isIncome = tipoTransacao === 1; const color = isIncome ? theme.positive : theme.negative; const sign = isIncome ? '+ ' : '- '; return ( <View style={styles.card}><View style={styles.cardDetails}><Text style={styles.cardTitle}>{categoryMap[categoria] || 'Sem Categoria'}</Text>{descricao ? (<Text style={styles.cardDescription}>{descricao}</Text>) : null}</View><Text style={[styles.cardAmount, { color }]}>{sign}R$ {valor.toFixed(2).replace('.', ',')}</Text></View> ); }; const renderDateHeader = ({ section: { title } }) => { const date = new Date(title + 'T12:00:00Z'); const dateText = date.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', }); return (<Text style={styles.sectionHeader}>{dateText.charAt(0).toUpperCase() + dateText.slice(1)}</Text>); }; return ( <View style={styles.container}><StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} backgroundColor={styles.container.backgroundColor} /><View style={styles.header}><TouchableOpacity onPress={() => onNavigate('home')} style={styles.backButton}><Text style={styles.backButtonText}>‹</Text></TouchableOpacity><Text style={styles.headerTitle}>Histórico</Text><View style={{ width: 40 }} /></View><SectionList sections={transactions} keyExtractor={(item) => (item.Id ?? item.id).toString()} renderItem={renderTransactionItem} renderSectionHeader={renderDateHeader} contentContainerStyle={styles.listContent} ListEmptyComponent={<Text style={styles.emptyText}>Nenhuma transação encontrada.</Text>} stickySectionHeadersEnabled={false}/></View> ); };
-const MissionsScreen = ({ onNavigate, missions, onDelete }) => { const { theme } = useTheme(); const styles = getStyles(theme); const [activeTab, setActiveTab] = useState('ativas'); const handleDelete = (missionId) => { Alert.alert( "Confirmar Exclusão", "Você tem certeza que quer deletar esta missão?", [ { text: "Cancelar", style: "cancel" }, { text: "Deletar", onPress: () => onDelete(missionId), style: "destructive" } ] ); }; const renderMissionItem = (mission) => { const status = mission.status; let statusInfo = { icon: '⏳', color: theme.primary, label: 'Em andamento' }; if (status === 1) { statusInfo = { icon: '✅', color: theme.positive, label: 'Concluída!' }; } else if (status === 2 || status === 3) { statusInfo = { icon: '❌', color: theme.negative, label: status === 2 ? 'Falhou' : 'Expirada' }; } const progress = mission.progressoAtual ?? 0; return ( <View key={mission.id} style={styles.missionListItem}><Text style={styles.missionStatusIcon}>{statusInfo.icon}</Text><View style={{ flex: 1, marginLeft: 15 }}><Text style={styles.missionListTitle}>{mission.descricao}</Text><View style={{ marginVertical: 8 }}><AnimatedProgressBar progress={progress} color={statusInfo.color} /></View><View style={styles.missionItemFooter}><Text style={{ fontSize: 14, color: theme.textSecondary }}>Recompensa: +{mission.pontosDeExperiencia} XP</Text><Text style={{ fontSize: 12, color: statusInfo.color, fontWeight: 'bold' }}>{statusInfo.label}</Text></View></View>{status === 0 && (<TouchableOpacity onPress={() => handleDelete(mission.id)} style={styles.deleteButton}><Text style={styles.deleteButtonText}>🗑️</Text></TouchableOpacity>)}</View> ); }; const missionLists = { ativas: missions.ativas || [], concluidas: missions.concluidas || [], falhas: missions.falhas || [] }; const currentList = missionLists[activeTab]; return ( <View style={styles.pageContainer}><View style={styles.pageHeader}><BackIcon onPress={() => onNavigate('home')} /><Text style={styles.pageTitle}>Minhas Missões</Text><View style={{ width: 50 }} /></View><View style={styles.tabContainer}><TouchableOpacity style={[styles.tab, activeTab === 'ativas' && styles.tabActive]} onPress={() => setActiveTab('ativas')}><Text style={[styles.tabText, activeTab === 'ativas' && styles.tabTextActive]}>Ativas</Text></TouchableOpacity><TouchableOpacity style={[styles.tab, activeTab === 'concluidas' && styles.tabActive]} onPress={() => setActiveTab('concluidas')}><Text style={[styles.tabText, activeTab === 'concluidas' && styles.tabTextActive]}>Concluídas</Text></TouchableOpacity><TouchableOpacity style={[styles.tab, activeTab === 'falhas' && styles.tabActive]} onPress={() => setActiveTab('falhas')}><Text style={[styles.tabText, activeTab === 'falhas' && styles.tabTextActive]}>Falhas</Text></TouchableOpacity></View><ScrollView contentContainerStyle={styles.formContainer}>{currentList.length > 0 ? currentList.map(mission => renderMissionItem(mission)) : <Text style={styles.emptyMessage}>Nenhuma missão nesta categoria.</Text>}</ScrollView><View style={styles.bottomButtonContainer}><TouchableOpacity style={styles.button} onPress={() => onNavigate('createMission')}><Text style={styles.buttonText}>Criar Nova Missão</Text></TouchableOpacity></View></View> ); };
+const TransactionHistoryScreen = ({ onNavigate, transactions }) => { const { theme } = useTheme(); const styles = getHistoryStyles(theme); const renderTransactionItem = ({ item }) => { const tipoTransacao = item.TipoTransacao ?? item.tipoTransacao; const categoria = item.Categoria ?? item.categoria; const descricao = item.Descricao ?? item.descricao; const valor = item.Valor ?? item.valor ?? 0; const isIncome = tipoTransacao === 1; const color = isIncome ? theme.positive : theme.negative; const sign = isIncome ? '+ ' : '- '; return ( <View style={styles.card}><View style={styles.cardDetails}><Text style={styles.cardTitle}>{categoryMap[categoria] || 'Sem Categoria'}</Text>{descricao ? (<Text style={styles.cardDescription}>{descricao}</Text>) : null}</View><Text style={[styles.cardAmount, { color }]}>{sign}R$ {valor.toFixed(2).replace('.', ',')}</Text></View> ); }; const renderDateHeader = ({ section: { title } }) => { const date = new Date(title + 'T12:00:00Z'); const dateText = date.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', }); return (<Text style={styles.sectionHeader}>{dateText.charAt(0).toUpperCase() + dateText.slice(1)}</Text>); }; return ( <View style={styles.container}><StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} backgroundColor={styles.container.backgroundColor} /><View style={styles.header}><TouchableOpacity onPress={() => onNavigate('home')} style={styles.backButton}><Text style={styles.backButtonText}>‹</Text></TouchableOpacity><Text style={styles.headerTitle}>Histórico</Text><View style={{ width: 40 }} /></View><SectionList sections={transactions} keyExtractor={(item) => (item.Id ?? item.id).toString()} renderItem={renderTransactionItem} renderSectionHeader={renderDateHeader} contentContainerStyle={styles.listContent} ListEmptyComponent={<Text style={styles.emptyText}>Nenhuma transação encontrada.</Text>} stickySectionHeadersEnabled={false}/></View> ); };
+
+// ===================================================================
+// ===== TELA DE MISSÕES REFEITA COM ABAS DESLIZÁVEIS ==============
+// ===================================================================
+
+const MissionItem = ({ mission, onDelete }) => { // 1. REMOVIDO onPress
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
+  const status = mission.status;
+  let statusInfo = { icon: '⏳', color: theme.primary, label: 'Em andamento' };
+  if (status === 1) { statusInfo = { icon: '✅', color: theme.positive, label: 'Concluída!' }; }
+  else if (status === 2 || status === 3) { statusInfo = { icon: '❌', color: theme.negative, label: status === 2 ? 'Falhou' : 'Expirada' }; }
+  const progress = mission.progressoAtual ?? 0;
+
+  return (
+    // 2. VOLTOU A SER UMA VIEW NORMAL
+    <View style={styles.missionListItem}>
+      <Text style={styles.missionStatusIcon}>{statusInfo.icon}</Text>
+      <View style={{ flex: 1, marginLeft: 15 }}>
+        <Text style={styles.missionListTitle}>{mission.descricao}</Text>
+        <View style={{ marginVertical: 8 }}><AnimatedProgressBar progress={progress} color={statusInfo.color} /></View>
+        <View style={styles.missionItemFooter}>
+          <Text style={styles.missionRewardText}>
+            Recompensa: +{mission.pontosDeExperiencia} XP
+          </Text>
+          <Text style={[styles.missionStatusLabel, { color: statusInfo.color }]}>
+            {statusInfo.label}
+          </Text>
+        </View>
+      </View>
+      {status === 0 && (
+        <TouchableOpacity onPress={() => onDelete(mission.id)} style={styles.deleteButton}>
+          <Text style={styles.deleteButtonText}>🗑️</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+};
+
+const MissionListScene = ({ missions, onDelete }) => { // 3. REMOVIDO onNavigateToDetail
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
+  return (
+    <ScrollView contentContainerStyle={styles.formContainer}>
+      {missions.length > 0 ? (
+        missions.map(mission => <MissionItem key={mission.id} mission={mission} onDelete={onDelete} />)
+      ) : (
+        <Text style={styles.emptyMessage}>Nenhuma missão nesta categoria.</Text>
+      )}
+    </ScrollView>
+  );
+};
+
+const MissionsScreen = ({ onNavigate, missions, onDelete }) => { // 4. REMOVIDO onNavigateToDetail
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
+  const layout = useWindowDimensions();
+
+  const [index, setIndex] = useState(0);
+  const [routes] = useState([
+    { key: 'ativas', title: 'Ativas' },
+    { key: 'concluidas', title: 'Concluídas' },
+    { key: 'falhas', title: 'Falhas' },
+  ]);
+
+  const renderScene = SceneMap({
+    ativas: () => <MissionListScene missions={missions.ativas || []} onDelete={onDelete} />,
+    concluidas: () => <MissionListScene missions={missions.concluidas || []} onDelete={onDelete} />,
+    falhas: () => <MissionListScene missions={missions.falhas || []} onDelete={onDelete} />,
+  });
+
+  return (
+    <View style={styles.pageContainer}>
+      <View style={styles.pageHeader}>
+        <BackIcon onPress={() => onNavigate('home')} />
+        <Text style={styles.pageTitle}>Minhas Missões</Text>
+        <View style={{ width: 50 }} />
+      </View>
+      <TabView
+        navigationState={{ index, routes }}
+        renderScene={renderScene}
+        onIndexChange={setIndex}
+        initialLayout={{ width: layout.width }}
+        renderTabBar={props => (
+          <TabBar
+            {...props}
+            indicatorStyle={{ backgroundColor: theme.primary }}
+            style={{ backgroundColor: theme.card }}
+            labelStyle={styles.tabText}
+            activeColor={theme.primary}
+            inactiveColor={theme.tabInactive}
+          />
+        )}
+      />
+      <View style={styles.bottomButtonContainer}>
+        <TouchableOpacity style={styles.button} onPress={() => onNavigate('createMission')}>
+          <Text style={styles.buttonText}>Criar Nova Missão</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+};
 
 // --- Componente Principal ---
 const App = () => {
@@ -157,17 +308,13 @@ const App = () => {
   const [alertInfo, setAlertInfo] = useState({ visible: false, title: '', message: '' });
   const [activeMissions, setActiveMissions] = useState([]);
   const [allMissions, setAllMissions] = useState({ ativas: [], concluidas: [], falhas: [] });
-  // 3. Adicionar estado para o RefreshControl
   const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  // 5. REMOVIDO o estado selectedMission
 
   const loadAllData = async (token) => {
     if (!token) return;
-
-    // Apenas mostra o loading grande da tela inteira se NÃO for um "pull to refresh"
-    if (!isRefreshing) {
-      setIsLoading(true);
-    }
-
+    if (!isRefreshing) { setIsLoading(true); }
     setDashboardError(null);
     setTransactions([]);
     try {
@@ -229,7 +376,6 @@ const App = () => {
     setIsLoading(false);
   };
 
-  // 4. Criar a função que será chamada pelo gesto de "puxar"
   const onRefresh = async () => {
     setIsRefreshing(true);
     await loadAllData(userToken);
@@ -242,7 +388,15 @@ const App = () => {
   const handleCreateQuestSuccess = async (questData) => { try { await apiService.createQuest(questData, userToken); await loadAllData(userToken); handleNavigate('missions'); } catch (error) { setAlertInfo({ visible: true, title: 'Erro', message: error.message }); }};
   const handleDeleteQuest = async (questId) => { try { await apiService.deleteQuest(questId, userToken); await loadAllData(userToken); } catch (error) { setAlertInfo({ visible: true, title: 'Erro', message: error.message }); }};
   const handleLogout = () => { setUserToken(null); setIsLoggedIn(false); setActiveMissions([]); setAllMissions({ ativas: [], concluidas: [], falhas: [] }); setDashboardData(null); setUserProfileData(null); setTransactions([]); setCurrentScreen('login'); };
-  const handleNavigate = (screen) => { if (isLoggedIn) { setActiveScreen(screen); } else { setCurrentScreen(screen); } };
+  
+  // 6. SIMPLIFICADO handleNavigate
+  const handleNavigate = (screen) => {
+    if (isLoggedIn) {
+      setActiveScreen(screen);
+    } else {
+      setCurrentScreen(screen);
+    }
+  };
   
   const renderScreen = () => {
       if (!isLoggedIn) { return currentScreen === 'login' ? <LoginScreen onNavigate={setCurrentScreen} onLoginSuccess={handleLoginSuccess} /> : <SignUpScreen onNavigate={setCurrentScreen} />; }
@@ -252,9 +406,10 @@ const App = () => {
         case 'history': return <TransactionHistoryScreen onNavigate={handleNavigate} transactions={transactions} />;
         case 'addIncome': return <AddIncomeScreen onNavigate={handleNavigate} userToken={userToken} onSaveSuccess={handleTransactionSaveSuccess} dashboardData={dashboardData} />;
         case 'addExpense': return <AddExpenseScreen onNavigate={handleNavigate} userToken={userToken} onSaveSuccess={handleTransactionSaveSuccess} dashboardData={dashboardData} />;
+        // 7. REMOVIDA a prop onNavigateToDetail
         case 'missions': return <MissionsScreen onNavigate={handleNavigate} missions={allMissions} onDelete={handleDeleteQuest} />;
-        case 'createMission': return <CreateMissionScreen onNavigate={handleNavigate} onSave={handleCreateQuestSuccess} />;
-        // 5. Passar as novas props para a HomeScreen
+        // 8. REMOVIDO o case para 'missionDetail'
+        case 'createMission': return <CreateMissionScreen onNavigate={setActiveScreen} onSave={handleCreateQuestSuccess} />;
         default: return <HomeScreen onNavigate={handleNavigate} missions={activeMissions} dashboardData={dashboardData} isLoading={isLoading} dashboardError={dashboardError} isRefreshing={isRefreshing} onRefresh={onRefresh} />;
       }
   };
@@ -288,8 +443,10 @@ const getStyles = (theme) => StyleSheet.create({
   missionListItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.card, borderRadius: 12, padding: 15, marginBottom: 15, borderWidth: 1, borderColor: theme.border },
   missionListTitle: { fontSize: 16, fontWeight: '500', marginBottom: 5, color: theme.text },
   missionItemFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  missionRewardText: { flex: 1, fontSize: 14, color: theme.textSecondary },
+  missionStatusLabel: { fontSize: 12, fontWeight: 'bold' },
   progressBarBackground: { height: 8, backgroundColor: theme.dark ? '#333' : '#eee', borderRadius: 4, width: '100%' }, progressBarFill: { height: 8, borderRadius: 4 }, centeredMessageContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 }, errorMessage: { fontSize: 16, color: theme.negative, textAlign: 'center' }, separator: { height: 1, width: '100%', backgroundColor: theme.border, marginVertical: 15 }, missionsCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}, missionsViewMore: { color: theme.primary, fontWeight: 'bold', fontSize: 14 }, missionsCardTitle: { fontSize: 16, fontWeight: 'bold', color: theme.text }, missionXpText: { fontSize: 12, color: theme.textSecondary, marginTop: 5 }, deleteButton: { padding: 10, marginLeft: 10 }, deleteButtonText: { fontSize: 20 }, calendarGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center' }, calendarWeekDay: { width: '14.2%', textAlign: 'center', fontWeight: 'bold', color: theme.textSecondary, marginBottom: 10 }, calendarDay: { width: '14.2%', paddingVertical: 10, alignItems: 'center', justifyContent: 'center' }, calendarDayText: { fontSize: 16, color: theme.text }, profileContent: { padding: 20, alignItems: 'center' }, profileHeader: { alignItems: 'center', marginBottom: 30 }, profileAvatar: { width: 100, height: 100, borderRadius: 50, backgroundColor: theme.primary, justifyContent: 'center', alignItems: 'center', marginBottom: 15 }, profileAvatarText: { color: '#fff', fontSize: 40, fontWeight: 'bold' }, profileName: { fontSize: 24, fontWeight: 'bold', color: theme.text }, profileEmail: { fontSize: 16, color: theme.textSecondary, marginTop: 5 }, profileStatsCard: { backgroundColor: theme.card, borderRadius: 16, padding: 20, width: '100%', borderWidth: 1, borderColor: theme.border, marginBottom: 20 }, profileLevelRank: { fontSize: 18, fontWeight: 'bold', color: theme.text, textAlign: 'center' }, xpLabel: { fontSize: 14, color: theme.textSecondary, marginTop: 8, alignSelf: 'center' }, cardTitle: { fontSize: 16, fontWeight: 'bold', color: theme.text, marginBottom: 15 }, infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.border }, infoLabel: { fontSize: 16, color: theme.textSecondary }, infoValue: { fontSize: 16, color: theme.text, fontWeight: '500' }, secondaryButton: { backgroundColor: theme.card, borderWidth: 1, borderColor: theme.primary }, secondaryButtonText: { color: theme.primary }, achievementsGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around' }, achievementBadge: { width: '45%', backgroundColor: theme.card, borderRadius: 16, padding: 20, marginBottom: 15, alignItems: 'center', borderWidth: 1, borderColor: theme.border }, lockedBadge: { opacity: 0.4 }, achievementIcon: { fontSize: 40 }, achievementName: { fontSize: 16, fontWeight: 'bold', marginTop: 10, color: theme.text }, pageContainer: { flex: 1, backgroundColor: theme.background }, pageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 10 : 50, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: theme.border },
-  tabContainer: { flexDirection: 'row', justifyContent: 'space-around', backgroundColor: theme.card, paddingVertical: 5, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: theme.border }, tab: { paddingVertical: 10, paddingHorizontal: 15, borderRadius: 20 }, tabActive: { backgroundColor: theme.primary }, tabText: { fontSize: 16, color: theme.tabInactive, fontWeight: '500' },
-  tabTextActive: { color: theme.tabActiveText, fontWeight: 'bold' },
-  emptyMessage: { textAlign: 'center', marginTop: 50, fontSize: 16, color: theme.textSecondary }, missionStatusIcon: { fontSize: 24 }
+  tabText: { fontSize: 16, fontWeight: '500' },
+  emptyMessage: { textAlign: 'center', marginTop: 50, fontSize: 16, color: theme.textSecondary }, missionStatusIcon: { fontSize: 24 },
+  missionDetailTitle: { fontSize: 22, fontWeight: 'bold', color: theme.text, textAlign: 'center', marginBottom: 10 },
 });
